@@ -71,7 +71,7 @@ values = np.random.normal(100, 10, len(dates))
 history = pd.Series(values, index=dates, name='Sample Data')
 
 # Create Trends instance
-trends_instance = Trends(history, threshold=0.05, timeperiod='W')
+trends_instance = trends(history, threshold=0.05, timeperiod='W')
 
 # Fit the trends
 trends_instance.fit()
