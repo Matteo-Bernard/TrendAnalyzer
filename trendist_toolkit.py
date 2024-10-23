@@ -7,19 +7,15 @@ warnings.filterwarnings("ignore")
 
 class trends():
     def __init__(self, history, threshold, timeperiod = 'W'):
+        history = history.resample(timeperiod).last()
         self.history = history
         self.threshold = threshold
-        self.timeperiod = timeperiod
         self.ticker = history.name
+        self.timeperiod = timeperiod
 
     def fit(self):
         history = self.history
         threshold = self.threshold
-        timeperiod = self.timeperiod
-        
-        # Isolation de l'historique des prix ajustés de clôture pour l'actif étudié
-        history = history.resample(timeperiod).last()
-        history = history.dropna()
 
         # Initialisation du DataFrame pour stocker les caractéristiques des tendances
         trend = pd.DataFrame(columns=['Ticker', 'First', 'Last', 'Return', 'Length', 'Way'])
@@ -82,6 +78,7 @@ class trends():
             last = trend.loc[row, 'Last']
             trend.at[row, 'Return'] = (history[last] - history[first]) / history[first]
             trend.at[row, 'Length'] = (last - first).days
+            trend.at[row, 'Ticker'] = history.name
         trend = trend.reset_index(drop=True)
 
         # Attribution des étiquettes 'Up' ou 'Down' en fonction du sens de la tendance
@@ -90,6 +87,21 @@ class trends():
                 trend.at[row, 'Way'] = 'Up'
             else:
                 trend.at[row, 'Way'] = 'Down'
+
+        # Calculer la tendance en cours
+        last_trend = pd.DataFrame()
+        first = trend.iloc[-1]['Last']
+        last = history.index[-1]
+        last_trend.at[row+1, 'Ticker'] = history.name
+        last_trend.at[row+1, 'First'] = first
+        last_trend.at[row+1, 'Last'] = last
+        last_trend.at[row+1, 'Return'] = ((history[last] - history[first]) / history[first])
+        last_trend.at[row+1, 'Length'] = (last - first).days
+        last_trend.at[row+1, 'Way'] = 'Up' if last_trend.loc[row+1, 'Return'] > 0 else 'Down'
+        trend = pd.concat([trend, last_trend])
+
+        #trend.loc[trend['Length'] < 0, 'Length'] = 100 # à corriger
+
         self.trend = trend
         return self
 
@@ -98,43 +110,71 @@ class trends():
     def get_proba(self, metric):
         history = self.history
         trend = self.trend
+
         # Calcul des caractéristiques de la séquence en cours 
-        last_seq = history.loc[trend.iloc[-1]['Last']:]
-        last_return = (last_seq.iloc[-1] - last_seq.iloc[0]) / last_seq.iloc[0]
-        last_length = (history.index[-1] - trend.iloc[-1]['Last']).days
+        last_length = trend.iloc[-1]['Length']
+        last_return = trend.iloc[-1]['Return']
+        way = trend.iloc[-1]['Way']
+        data = trend[metric].to_list()
 
-        # Extraction des données à partir du DataFrame
-        if last_return > 0:
-            data = trend[metric]
-        else:
-            data = trend[metric]
-        data = data.to_list()
+        if metric == 'Length':
 
-        # Ajustement des paramètres de la distribution de Pareto aux données
-        shape, loc, scale = stats.pareto.fit(data)
+            # Ajustement des paramètres de la distribution de Pareto aux données
+            shape, loc, scale = stats.pareto.fit(data)
 
-        # Test de Kolmogorov-Smirnov pour évaluer l'ajustement de la distribution
-        ks_statistic, ks_p_value = stats.kstest(data, 'pareto', (shape, loc, scale))
+            # Test de Kolmogorov-Smirnov pour évaluer l'ajustement de la distribution
+            ks_statistic, ks_p_value = stats.kstest(data, 'pareto', (shape, loc, scale))
 
-        # Calcul de la probabilité de poursuite pour une durée spécifique
-        proba = stats.pareto.sf(last_length, shape, loc, scale)
+            # Calcul de la probabilité de poursuite pour une durée spécifique
+            proba = stats.pareto.sf(last_length, shape, loc, scale)
 
-        dict = {
-            'Last length' : "{:.2f}".format(last_length),
-            'Last return' : "{:.2f}%".format(last_return),
-            'Trend description' : pd.Series(data).describe().to_dict(),
-            'Distribution parameters' : {
-                'Shape' : shape,
-                'Loc' : loc,
-                'Scale' : scale
-            },
-            'KS test' : {
-                'Statitics' : ks_statistic,
-                'P-value' : ks_p_value
-            },
-            'Continuation proba' : proba
-        }
-        return dict
+            dict = {
+                'Trend way' : way,
+                'Last length' : "{:.2f}".format(last_length),
+                'Last return' : "{:.2f}%".format(last_return*100),
+                'Distribution type' : 'Pareto',
+                'Trend description' : pd.Series(data).describe().round(2).to_dict(),
+                'Distribution parameters' : {
+                    'Shape' : round(shape,2),
+                    'Loc' : round(loc,2),
+                    'Scale' : round(scale,2)
+                },
+                'KS test' : {
+                    'Statitics' : "{:.2f}%".format(ks_statistic*100),
+                    'P-value' : "{:.2f}%".format(ks_p_value*100)
+                },
+                'Continuation proba' : "{:.2f}%".format(proba*100)
+            }
+        
+        elif metric == 'Return':
+
+            # Ajustement des paramètres de la distribution de Pareto aux données
+            mean, std = stats.norm.fit(data)
+
+            # Test de Kolmogorov-Smirnov pour évaluer l'ajustement de la distribution
+            ks_statistic, ks_p_value = stats.kstest(data, 'norm', (mean, std))
+
+            # Calcul de la probabilité de poursuite pour une durée spécifique
+            proba = stats.norm.sf(last_return, mean, std)
+    
+            dict = {
+                'Trend way' : way,         
+                'Last length' : "{:.2f}".format(last_length),
+                'Last return' : "{:.2f}%".format(last_return*100),
+                'Distribution type' : 'Normal',
+                'Trend description' : pd.Series(data).describe().round(2).to_dict(),
+                'Distribution parameters' : {
+                    'Mean' : "{:.2f}%".format(mean*100),
+                    'Std' : "{:.2f}%".format(std*100),
+                },
+                'KS test' : {
+                    'Statitics' : "{:.2f}%".format(ks_statistic*100),
+                    'P-value' : "{:.2f}%".format(ks_p_value*100)
+                },
+                'Continuation proba' : "{:.2f}%".format(proba*100)
+            }
+
+        [print(f'{x}: {y}') for x, y in dict.items()]
     
 
 
@@ -149,12 +189,11 @@ class trends():
     def plot_trend(self):
         history = self.history
         trend = self.trend
-        timeperiod = self.timeperiod
         ticker = self.ticker
         threshold = self.threshold
+        timeperiod = self.timeperiod
 
         # Linéarisation de la tendance pour la représenter graphiquement
-        history = history.resample('D').ffill()
         linear_df = pd.DataFrame()
         for row in trend.index:
             linear_data = np.linspace(
@@ -164,11 +203,10 @@ class trends():
             )
             index = history[trend.loc[row, 'First'] : trend.loc[row, 'Last']].index.to_list()
             linear_df = pd.concat([linear_df, pd.DataFrame(linear_data, index = index)])
-        history = history.resample(timeperiod).last()
+        linear_df = linear_df.resample(timeperiod).last()
 
         # Clean linear trend 
         linear_df = linear_df.drop_duplicates()
-        linear_df = linear_df.resample(timeperiod).last()
         linear_df = linear_df.rename(columns={0:'Trend'})
         linear_df = pd.concat([history, linear_df], axis=1)
 
@@ -180,7 +218,7 @@ class trends():
         # Adding title and legend
         plt.title(f'{ticker} Price and Trend {threshold:.2f}')
         plt.legend()
-        #plt.grid(True)
+        plt.grid(True)
         plt.show()
 
 
@@ -194,12 +232,14 @@ class trends():
         # Calcul des caractéristiques de la séquence en cours 
         last_seq = history.loc[trend.iloc[-1]['Last']:]
         last_length = (history.index[-1] - trend.iloc[-1]['Last']).days
+        
+        last_trend = trend.iloc[-1][metric]
 
         # Tracé de l'histogramme
         plt.figure(figsize=(8, 4))
         plt.hist(
             trend_data, 
-            bins=25, 
+            bins=30, 
             density=True, 
             alpha=0.7, 
             color='blue', 
@@ -207,30 +247,47 @@ class trends():
             label=ticker
         )
 
-        # Tracé de la distribution de Pareto théorique
-        shape, loc, scale = stats.pareto.fit(trend_data)
-        x = np.linspace(trend_data.min(), trend_data.max(), 100)
-        y = stats.pareto.pdf(x, shape, loc, scale)
-        plt.plot(
-            x, 
-            y, 
-            'r-', 
-            lw=1, 
-            label='Pareto pdf'
-        )
+        if metric == 'Length':
+
+            # Tracé de la distribution de Pareto théorique
+            shape, loc, scale = stats.pareto.fit(trend_data)
+            x = np.linspace(trend_data.min(), trend_data.max(), 100)
+            y = stats.pareto.pdf(x, shape, loc, scale)
+            plt.plot(
+                x, 
+                y, 
+                'r-', 
+                lw=1, 
+                label='Pareto pdf'
+            )
+        
+        elif metric == 'Return':
+
+            # Tracé de la distribution normale théorique
+            mean, std = stats.norm.fit(trend_data)
+            x = np.linspace(trend_data.min(), trend_data.max(), 100)
+            y = stats.norm.pdf(x, mean, std)
+            plt.plot(
+                x, 
+                y, 
+                'r-', 
+                lw=1, 
+                label='Normal pdf'
+            )
 
         # Ajout de labels et d'une légende
         plt.ylabel('Frequency')
         plt.title(f'{ticker} - Distribution chart')
+
         plt.axvline(
-            x=last_length, 
+            x=last_trend, 
             color='red', 
             linestyle='dashed', 
             linewidth=1, 
             label='Last trend'
         )
 
-        #plt.grid(True)
+        plt.grid(True)
         plt.legend()
         plt.show()
 
@@ -243,18 +300,22 @@ class trends():
         trend_data = trend[metric].astype(float)
 
         # Calcul des caractéristiques de la séquence en cours 
-        last_seq = history.loc[trend.iloc[-1]['Last']:]
-        last_return = (last_seq.iloc[-1] - last_seq.iloc[0]) / last_seq.iloc[0]
-        last_length = (history.index[-1] - trend.iloc[-1]['Last']).days
+        last_length = trend.iloc[-1]['Length']
+        last_return = trend.iloc[-1]['Return']
         
         if metric == 'Length':
             last_metric = last_length
         elif metric == 'Return':
             last_metric = last_return
 
-        shape, loc, scale = stats.pareto.fit(trend_data)
-        x = np.linspace(trend_data.min(), trend_data.max(), 100)
-        y = stats.pareto.pdf(x, shape, loc, scale)
+        if metric == 'Length':
+            shape, loc, scale = stats.pareto.fit(trend_data)
+            x = np.linspace(trend_data.min(), trend_data.max(), 100)
+            y = stats.pareto.pdf(x, shape, loc, scale)
+        elif metric == 'Return':
+            mean, std = stats.norm.fit(trend_data)
+            x = np.linspace(trend_data.min(), trend_data.max(), 100)
+            y = stats.norm.pdf(x, mean, std)
         
         # Plot cumulative distribution chart
         fig = plt.figure(figsize=(12, 4), layout="constrained")
@@ -272,7 +333,7 @@ class trends():
             x, 
             y, 
             linewidth=1, 
-            label="Pareto pdf", 
+            label="Distribution pdf", 
             color='red'
         )
         axs[0].axvline(
@@ -294,7 +355,7 @@ class trends():
             x, 
             1 - y, 
             linewidth=1, 
-            label="Pareto pdf", 
+            label="Distribution pdf", 
             color='red'
         )
         axs[1].axvline(
