@@ -63,6 +63,7 @@ Plots the cumulative distribution function (CDF) and the complementary CDF (RCDF
 ```python
 import pandas as pd
 import numpy as np
+from trendist_toolkit import trends
 
 # Generate sample data
 dates = pd.date_range('2023-01-01', '2024-01-01', freq='D')
