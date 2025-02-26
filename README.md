@@ -41,9 +41,6 @@ The method returns the instance itself with the `trend` attribute populated.
 ### 2. `get_proba(metric)`
 Calculates the probability of continuation for the last identified trend based on the specified `metric` (`Length` or `Return`). It fits either a Pareto or normal distribution to the data and performs a Kolmogorov-Smirnov (KS) test to evaluate the fit.
 
-#### Parameters
-- `metric`: Can be either `'Length'` or `'Return'`.
-
 #### Output
 Prints a dictionary with details about the trend, distribution parameters, KS test results, and the continuation probability.
 
@@ -54,10 +51,10 @@ Returns the DataFrame of identified trends.
 Plots the time series data with the identified trends superimposed. The trends are represented as linear segments connecting the starting and ending values.
 
 ### 5. `plot_distrib(metric)`
-Plots the histogram of the specified metric (`Length` or `Return`) and overlays the fitted probability distribution (Pareto for `Length` and normal for `Return`). The plot also marks the last trend's value with a dashed vertical line.
+Plots the histogram of the `Length` and overlays the fitted probability Pareto distribution. The plot also marks the last trend's value with a dashed vertical line.
 
 ### 6. `plot_cumdistrib(metric)`
-Plots the cumulative distribution function (CDF) and the complementary CDF (RCDF) for the specified metric (`Length` or `Return`). It fits the appropriate distribution and overlays the cumulative probability values.
+Plots the cumulative distribution function (CDF) and the complementary CDF (RCDF) for the `Length` or `Return`. It fits the appropriate distribution and overlays the cumulative probability values.
 
 ## Usage Example
 ```python
@@ -77,16 +74,16 @@ trends_instance = trends(history, threshold=0.05, timeperiod='W')
 trends_instance.fit()
 
 # Get probability of continuation
-trends_instance.get_proba('Length')
+trends_instance.get_proba()
 
 # Plot the trends
 trends_instance.plot_trend()
 
 # Plot the distribution of Length
-trends_instance.plot_distrib('Length')
+trends_instance.plot_distrib()
 
 # Plot the cumulative distribution of Return
-trends_instance.plot_cumdistrib('Return')
+trends_instance.plot_cumdistrib()
 ```
 
 ## Notes
