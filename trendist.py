@@ -152,7 +152,8 @@ class Trends:
             'Continuation proba' : "{:.2f}%".format(proba*100)
         }
 
-        [print(f'{x}: {y}') for x, y in dict.items()]
+        #[print(f'{x}: {y}') for x, y in dict.items()]
+        return dict
 
     def plot_trend(self, start, end, figsize=(12, 6), logy=False, show=True):
         history = self.history
