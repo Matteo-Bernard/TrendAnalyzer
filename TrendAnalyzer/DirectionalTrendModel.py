@@ -4,7 +4,7 @@ import numpy as np
 from scipy import stats
 import tempfile
 
-class Trends:
+class DTM: #Directional Trend Model
     def __init__(self, history, threshold, timeperiod='D'):
         # Resample the history data according to the specified time period
         self.history = history.resample(timeperiod).last()

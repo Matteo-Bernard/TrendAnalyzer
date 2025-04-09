@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="TrendDistrib",
+    name="TrendAnalyzer",
     version="0.0.1",
-    description="Calcul de distribution des tendances boursières",
+    description="Outils de calcul de tendances boursières",
     author="Matteo Bernard",
     packages=find_packages(),
     install_requires=[
