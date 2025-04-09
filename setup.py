@@ -11,7 +11,6 @@ setup(
         "numpy",
         "matplotlib",
         "scipy",
-        "tempfile"
     ],
     include_package_data=True,
 )
