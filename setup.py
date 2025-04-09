@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="TrendAnalyzer",
-    version="0.0.1",
+    version="0.0.2",
     description="Outils de calcul de tendances boursières",
     author="Matteo Bernard",
     packages=find_packages(),

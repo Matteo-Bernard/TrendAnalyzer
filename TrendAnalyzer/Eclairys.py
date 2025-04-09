@@ -1,109 +1,179 @@
-import yfinance as yf
-import numpy as np
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+import tempfile
 
-class eclairys:
-    def __init__(self, stock_ticker, sector_ticker, market_ticker, short_period=[5, 10, 20], long_period=[50, 100, 200]):
-        self.stock_ticker = stock_ticker
-        self.sector_ticker = sector_ticker
-        self.market_ticker = market_ticker
+class Eclairys:
+    def __init__(self, history, short_period, long_period):
+        """
+        Initialize the StockAnalyzer with historical stock data and periods.
+
+        Parameters:
+        - history: Series containing historical stock prices.
+        - short_period: List of 3 integers representing short periods.
+        - long_period: List of 3 integers representing long periods.
+        """
+        self.history = history #.resample('D').ffill()
         self.short_period = short_period
         self.long_period = long_period
-        self.period_list = short_period + long_period
-        self.stock_history = None
-        self.market_history = None
-        self.sector_history = None
-        self.market_relative_history = None
-        self.sector_relative_history = None
 
-    def fetch_data(self):
-        """Fetch historical data for the stock and market."""
-        self.stock_history = yf.Ticker(self.stock_ticker).history('max')['Close'].tz_localize(None).dropna()
-        self.stock_history.name = self.stock_ticker
-        self.market_history = yf.Ticker(self.market_ticker).history('max')['Close'].tz_localize(None).dropna()
-        self.market_relative_history = self.stock_history / self.market_history
-        self.sector_history = yf.Ticker(self.sector_ticker).history('max')['Close'].tz_localize(None).dropna()
-        self.sector_relative_history = self.stock_history / self.sector_history
+    def moving_average(self):
+        """
+        Calculate moving averages based on historical stock data.
 
-    def calculate_moving_averages(self, data):
-        """Calculate moving averages and moving average differentials."""
-        MA_df, MAD_df = pd.DataFrame(), pd.DataFrame()
-        for period in self.period_list:
-            if len(data) < period:
+        Returns:
+        - MA_df: DataFrame containing moving averages for each period.
+        """
+        MA_df = pd.DataFrame(index=self.history.index)
+        MA_df[self.history.name] = self.history
+
+        for period in self.short_period + self.long_period:
+            if len(self.history) < period:
                 MA_df[f'MA {period}'] = np.nan
+            else:
+                MA = self.history.rolling(period).mean()
+                MA_df[f'MA {period}'] = MA
+
+        return MA_df
+
+    def gps(self):
+        """
+        Generate GPS indicators based on historical stock data.
+
+        Returns:
+        - GPS: Series containing GPS indicators.
+        """
+        MAD_df = pd.DataFrame()
+        for period in self.short_period + self.long_period:
+            if len(self.history) < period:
                 MAD_df[f'MAD {period}'] = np.nan
             else:
-                MA = data.rolling(period).mean()
-                MA_df[f'MA {period}'] = MA
+                MA = self.history.rolling(period).mean()
                 MAD = MA.diff(5)
                 MAD_df[f'MAD {period}'] = MAD
-        return MA_df, MAD_df
 
-    def normalize_mad(self, MAD_df):
-        """Normalize MAD using a rolling window."""
+        BMAD = (MAD_df >= 0).astype(int)
+        short_columns = [f'MAD {p}' for p in self.short_period]
+        long_columns = [f'MAD {p}' for p in self.long_period]
+
+        SBMAD = BMAD[short_columns].sum(axis=1)
+        LBMAD = BMAD[long_columns].sum(axis=1)
+
+        conditions = [
+            (SBMAD >= 2) & (LBMAD >= 2),
+            (SBMAD <= 2) & (LBMAD <= 2),
+            (SBMAD >= 2) & (LBMAD <= 2),
+            (SBMAD <= 2) & (LBMAD >= 2)
+        ]
+        choices = ['A', 'B', 'C', 'P']
+        GPS = pd.Series(np.select(conditions, choices, default="P"), index=self.history.index)
+
+        return GPS
+
+    def grade(self):
+        """
+        Calculate the GRADE score based on historical stock data.
+
+        Returns:
+        - GRADE: Series containing GRADE scores.
+        """
+        MAD_df = pd.DataFrame()
+        for period in self.short_period + self.long_period:
+            if len(self.history) < period:
+                MAD_df[f'MAD {period}'] = np.nan
+            else:
+                MA = self.history.rolling(period).mean()
+                MAD = MA.diff(5)
+                MAD_df[f'MAD {period}'] = MAD
+
         MADN_df = pd.DataFrame(index=MAD_df.index)
         rolling_max = MAD_df.rolling(200, min_periods=1).max()
         rolling_min = MAD_df.rolling(200, min_periods=1).min()
         MADN_df = 100 * (MAD_df - rolling_min) / (rolling_max - rolling_min)
         MADN_df = MADN_df.replace([np.inf, -np.inf], 0).fillna(0)
-        return MADN_df
 
-    def calculate_grade(self, MADN_df):
-        """Calculate the GRADE score as the mean of normalized MAD values."""
         GRADE = MADN_df.mean(axis=1)
+
         return GRADE
 
-    def generate_gps(self, MAD_df, short_period, long_period):
-        """Generate GPS indicators based on booleanized MAD values."""
-        BMAD = (MAD_df >= 0).astype(int)
-        
-        # Créer les noms de colonnes pour les périodes courtes et longues
-        short_columns = [f'MAD {p}' for p in short_period]
-        long_columns = [f'MAD {p}' for p in long_period]
-        
-        # Calculer la somme des périodes courtes et longues
-        SBMAD = BMAD[short_columns].sum(axis=1)
-        LBMAD = BMAD[long_columns].sum(axis=1)
+    def plot(self, start=None, end=None, show=True):
+        """
+        Plot the stock analysis including moving averages, GRADE, and GPS.
 
-        # Générer les indicateurs GPS en fonction des conditions
-        conditions = [
-            (SBMAD >= 2) & (LBMAD >= 2),
-            (SBMAD < 2) & (LBMAD < 2),
-            (SBMAD >= 2) & (LBMAD < 2),
-            (SBMAD < 2) & (LBMAD >= 2)
-        ]
-        choices = ['A', 'B', 'C', 'P']
-        GPS = pd.Series(np.select(conditions, choices, default=None), index=MAD_df.index)
-        return GPS
+        Parameters:
+        - start: Start date for the plot.
+        - end: End date for the plot.
+        - show: Whether to display the plot or save it as an image.
 
-    def run_analysis(self):
-        """Run the entire analysis and return the output DataFrame."""
-        self.fetch_data()
-        
-        # Calculate indicators for the stock
-        stock_MA_df, stock_MAD_df = self.calculate_moving_averages(self.stock_history)
-        stock_MADN_df = self.normalize_mad(stock_MAD_df)
-        stock_GRADE = self.calculate_grade(stock_MADN_df)
-        stock_GPS = self.generate_gps(stock_MAD_df, self.short_period, self.long_period)
+        Returns:
+        - eclairys_chart: Path to the saved chart image if show is False.
+        """
+        # Calculate necessary data
+        MA_df = self.moving_average()
+        GPS = self.gps()
+        GRADE = self.grade()
 
-        # Combine stock indicators into a DataFrame
-        stock_output = pd.concat([
-            pd.DataFrame(self.stock_history),
-            stock_MA_df,
-            pd.DataFrame(stock_GRADE, columns=['GRADE']),
-            pd.DataFrame(stock_GPS, columns=['Absolute GPS'])
-        ], axis=1)
+        # Combine data into a single DataFrame
+        df = pd.concat([MA_df, GRADE.rename('GRADE'), GPS.rename('Absolute GPS')], axis=1)
 
-        # Calculate indicators for the relative trend on sector
-        sector_MA_df, sector_MAD_df = self.calculate_moving_averages(self.sector_relative_history)
-        sector_GPS = self.generate_gps(sector_MAD_df, self.short_period, self.long_period)
-        stock_output['Sector GPS'] = sector_GPS
+        # Filter data based on start and end dates
+        if start:
+            df = df.loc[start:]
+        if end:
+            df = df.loc[:end]
 
-        # Calculate indicators for the relative trend on market
-        market_MA_df, market_MAD_df = self.calculate_moving_averages(self.market_relative_history)
-        market_GPS = self.generate_gps(market_MAD_df, self.short_period, self.long_period)
-        stock_output['Market GPS'] = market_GPS
+        # Plotting
+        plt.rcParams['xtick.labelsize'] = 8
+        plt.rcParams['ytick.labelsize'] = 8
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8), sharex=True,
+                                            gridspec_kw={'height_ratios': [3, 1, 0.25], 'hspace': 0.3})
 
-        return stock_output
-    
+        stock_ticker = df.columns[0]
 
+        # 1st plot: Stock Price and Moving Averages
+        ax1.plot(df.index, df[stock_ticker], label=stock_ticker, color='black', linewidth=1)
+        for period in self.short_period + self.long_period:
+            ax1.plot(df.index, df[f'MA {period}'], label=f'MA {period}', linestyle='--', linewidth=0.85)
+        ax1.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=8)
+        ax1.set_title(f'{self.history.name} Price and Moving Averages', fontsize=10)
+        ax1.grid(True, alpha=0.5)
+
+        # 2nd plot: GRADE
+        ax2.plot(df.index, df['GRADE'], color='black')
+        ax2.axhline(y=75, color='green', linewidth=0.75)
+        ax2.axhline(y=25, color='red', linewidth=0.75)
+        ax2.set_title('GRADE', fontsize=10)
+        ax2_legend_elements = [Line2D([0], [0], color='black', lw=1, label='Grade'),
+                               Line2D([0], [0], color='green', lw=0.75, label='Buy'),
+                               Line2D([0], [0], color='red', lw=0.75, label='Sell')]
+        ax2.legend(handles=ax2_legend_elements, loc='upper left', bbox_to_anchor=(1, 1), fontsize=8)
+        ax2.grid(True, alpha=0.5)
+
+        # 3rd plot: Absolute GPS with color bands
+        gps_colors = {'A': 'green', 'B': 'red', 'P': 'blue', 'C': 'orange'}
+        for grade, color in gps_colors.items():
+            mask = df['Absolute GPS'] == grade
+            ax3.fill_between(df.index, 0, 1, where=mask, color=color, alpha=0.5, transform=ax3.get_xaxis_transform())
+        ax3.set_title('Absolute GPS', fontsize=10)
+        ax3.set_yticks([])
+
+        # Add GPS legend
+        ax3_legend_elements = [Patch(facecolor='green', label='A', alpha=0.5),
+                               Patch(facecolor='red', label='B', alpha=0.5),
+                               Patch(facecolor='blue', label='P', alpha=0.5),
+                               Patch(facecolor='orange', label='C', alpha=0.5)]
+        ax3.legend(handles=ax3_legend_elements, loc='upper left', bbox_to_anchor=(1, 1), fontsize=8)
+
+        plt.tight_layout()
+
+        if show:
+            plt.show()
+        else:
+            # Save the plot to a file
+            eclairys_chart = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            plt.savefig(eclairys_chart.name, format='png', bbox_inches='tight')
+            plt.close()
+
+            return eclairys_chart.name

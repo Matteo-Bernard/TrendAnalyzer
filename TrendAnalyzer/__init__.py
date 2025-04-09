@@ -5,7 +5,7 @@ from .DirectionalTrendModel import (
 )
 
 from .Eclairys import (
-    eclairys
+    Eclairys
 )
 
 from .MarketClimate import (
