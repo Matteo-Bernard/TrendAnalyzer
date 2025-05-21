@@ -11,3 +11,7 @@ from .Eclairys import (
 from .MarketClimate import (
     MC
 )
+
+from .GeometricBrownianMotion import (
+    GBM
+)
